@@ -35,14 +35,18 @@ class UrbanDictionaryCommand(Command):
 
     async def run(self, room: nio.MatrixRoom, event: nio.RoomMessageText):
         query = event.body[1:].split()[1:]
+
         if query:
-            response = requests.get(self.URL, {"term": query})
+            query_param = " ".join(query)
+            response = requests.get(self.URL, {"term": query_param})
         else:
             response = requests.get(self.RANDOM_URL)
 
         response.raise_for_status()
 
         json = response.json()
+        if not json.get("list", []):
+            return
         entry = json["list"][0]
         definition = entry["definition"]
         word = entry["word"]

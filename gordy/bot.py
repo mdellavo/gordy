@@ -1,5 +1,6 @@
 import random
 import logging
+import time
 
 import nio
 
@@ -9,10 +10,11 @@ logger = logging.getLogger("gordy")
 GREETINGS = [
     "hi", "high", "hello", "sirs", "pals", "buddies", "friends", "amigos",
     "compadres", "mates", "chums", "confidants", "brothers", "ÜŔ ŮŔ Æ Æ Æ",
-    "good day", "sup playas",
+    "good day", "sup playas", "waddup", "howdy"
 ]
 
 COMMAND_PREFIX = "!"
+GREETING_TIMEOUT = 5 * 60
 
 
 def get_command_class(name):
@@ -24,8 +26,9 @@ class Bot:
 
     def __init__(self, client, command_prefix=COMMAND_PREFIX):
         self.client = client
-        self.command_prefix = COMMAND_PREFIX
+        self.command_prefix = command_prefix
         self.state = {}
+        self.last_greeting = {}
 
     async def process_event(self, room: nio.MatrixRoom, event: nio.Event) -> None:
         if isinstance(event, nio.RoomMessageText):
@@ -35,7 +38,8 @@ class Bot:
         if event.sender == self.client.user_id:
             return
 
-        if event.body in GREETINGS:
+        is_greeting = event.body.strip() in GREETINGS
+        if is_greeting:
             await self.send_greeting_to_room(room.room_id)
 
         if event.body.startswith(self.command_prefix):
@@ -69,8 +73,15 @@ class Bot:
             logger.exception("Unable to send message response to %s", room_id)
 
     async def send_greeting_to_room(self, room_id: str):
-        greet = random.choice(GREETINGS)
-        await self.send_message_to_room(room_id, greet)
+
+        now = time.time()
+        last_greeting = self.last_greeting.get(room_id, 0)
+
+        delta = now - last_greeting
+        if delta > GREETING_TIMEOUT:
+            greet = random.choice(GREETINGS)
+            await self.send_message_to_room(room_id, greet)
+            self.last_greeting[room_id] = now
 
 
 class EventHandler:

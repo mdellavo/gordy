@@ -71,8 +71,17 @@ async def main():
         resp = await client.register(args.user, password)
         logger.info("registration response: %s", resp)
 
+        if isinstance(resp, nio.RegistrationError):
+            logger.error("error registering: ", resp.message)
+            return 1
+
     logger.info("logging in as %s...", args.user)
     resp = await client.login(password)
+
+    if isinstance(resp, nio.LoginError):
+        logger.error("error logging in: ", resp.message)
+        return 1
+
     logger.info("login response: %s", resp)
 
     if client.should_upload_keys:
@@ -104,8 +113,6 @@ if __name__ == "__main__":
 
     try:
         rv = asyncio.run(main())
-    except KeyboardInterrupt:
-        rv = 0
     except Exception as e:
         logger.exception("An error occurred")
         rv = 1
