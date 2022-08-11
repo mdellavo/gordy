@@ -1,6 +1,8 @@
+import asyncio
 import random
 import logging
 import time
+from contextlib import contextmanager
 
 import nio
 
@@ -10,16 +12,40 @@ logger = logging.getLogger("gordy")
 GREETINGS = [
     "hi", "high", "hello", "sirs", "pals", "buddies", "friends", "amigos",
     "compadres", "mates", "chums", "confidants", "brothers", "ÜŔ ŮŔ Æ Æ Æ",
-    "good day", "sup playas", "waddup", "howdy"
+    "good day", "waddup", "howdy", "whats good fam"
 ]
 
 COMMAND_PREFIX = "!"
 GREETING_TIMEOUT = 5 * 60
 
 
-def get_command_class(name):
-    from .commands import Command
-    return Command.get_command_class(name) if name else None
+class Timer:
+    def __init__(self):
+        self.time_start = None
+        self.time_stop = None
+
+    def start(self):
+        self.time_start = time.perf_counter_ns()
+
+    def stop(self):
+        self.time_stop = time.perf_counter_ns()
+
+    @property
+    def elapsed(self):
+        if not (self.time_start and self.time_stop):
+            return None
+
+        return (self.time_stop - self.time_start) / 1_000_000
+
+
+@contextmanager
+def timed():
+    timer = Timer()
+    timer.start()
+
+    yield timer
+
+    timer.stop()
 
 
 class Bot:
@@ -45,14 +71,14 @@ class Bot:
         if event.body.startswith(self.command_prefix):
             parts = event.body[1:].split()
             command_name = parts[0] if parts else None
-            command_class = get_command_class(command_name)
-            if command_class:
-                command = command_class(self)
-
+            if command_name:
                 try:
-                    await command.run(room, event)
-                except Exception:
-                    logger.exception("Error running command")
+                    await run_command(command_name, self, room, event)
+                except asyncio.TimeoutError:
+                    logger.error("command %s timed out: %s", command_name, parts)
+
+    async def send_typing(self, room_id: str, state=True, timeout=10_000):
+        await self.client.room_typing(room_id, typing_state=state, timeout=timeout)
 
     async def send_message_to_room(self, room_id: str, message: str):
 
@@ -60,6 +86,7 @@ class Bot:
             "msgtype": "m.text",
             "format": "org.matrix.custom.html",
             "body": message,
+            "formatted_body": message,
         }
 
         try:
@@ -82,6 +109,28 @@ class Bot:
             greet = random.choice(GREETINGS)
             await self.send_message_to_room(room_id, greet)
             self.last_greeting[room_id] = now
+
+
+async def run_command(command_name: str, bot: Bot, room: nio.MatrixRoom, event: nio.Event):
+    from .commands import Command
+
+    if not command_name:
+        return
+
+    command_class = Command.get_command_class(command_name)
+
+    if not command_class:
+        return
+
+    command = command_class(bot)
+
+    with timed() as timer:
+        try:
+            await command.run(room, event)
+        except Exception:
+            logger.exception("Error running command")
+
+    logger.info("command %s took %.02fms", command_name, timer.elapsed)
 
 
 class EventHandler:

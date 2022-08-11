@@ -14,20 +14,21 @@ from .bot import Bot, EventHandler
 
 
 async def main():
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='[%(asctime)s] %(levelname)s/%(name)s - %(message)s',
-    )
-
-    for logger_name in ["peewee", "requests"]:
-        logging.getLogger(logger_name).setLevel(logging.ERROR)
-
 
     parser = argparse.ArgumentParser(description='gordy')
+    parser.add_argument("--debug", action="store_true", help="enable debug logging")
     parser.add_argument("--homeserver", required=True, help="homeserver to connect to")
     parser.add_argument("--user", required=True, help="user to login as")
     parser.add_argument("--register", help="register new user", action="store_true")
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.debug else logging.INFO,
+        format='[%(asctime)s] %(levelname)s/%(name)s - %(message)s',
+    )
+
+    for logger_name in ["peewee", "requests", "urllib3.connectionpool"]:
+        logging.getLogger(logger_name).setLevel(logging.ERROR)
 
     logger.info("connecting to %s...", args.homeserver)
 
@@ -40,13 +41,11 @@ async def main():
             logger.error("passwords do not match")
             return 1
 
-    store_path = os.path.join("data", "store")
+    store_path = os.path.join(os.getenv("HOME", "/"), ".gordy")
     if not os.path.exists(store_path):
         os.makedirs(store_path, exist_ok=True)
 
     client_config = nio.AsyncClientConfig(
-        max_limit_exceeded=0,
-        max_timeouts=0,
         store_sync_tokens=True,
         encryption_enabled=True,
     )
@@ -87,21 +86,14 @@ async def main():
     if client.should_upload_keys:
         await client.keys_upload()
 
-    logger.info("syncing...")
-
-    await client.sync(full_state=True)
-
-    joined_rooms = await client.joined_rooms()
-    for room_id in joined_rooms.rooms:
-        await bot.send_greeting_to_room(room_id)
-
     stop = asyncio.Event()
 
     while not stop.is_set():
         try:
+            logger.info("syncing...")
             await client.sync_forever(30_000)
         except asyncio.exceptions.TimeoutError:
-            logger.warning("Unable to connect to homeserver, retrying in 15s...")
+            logger.warning("Unable to connect to homeserver, retrying in 5s...")
             time.sleep(5)
         finally:
             await client.close()

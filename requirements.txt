@@ -1,2 +1,4 @@
 matrix-nio[e2e]
-requests
+aiohttp[speedups]
+cinemagoer
+lxml
