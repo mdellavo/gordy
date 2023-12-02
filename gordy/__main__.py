@@ -70,15 +70,18 @@ async def main():
         resp = await client.register(args.user, password)
         logger.info("registration response: %s", resp)
 
-        if isinstance(resp, nio.RegistrationError):
-            logger.error("error registering: ", resp.message)
+        if not isinstance(resp, nio.RegisterResponse):
+            logger.error("error registering: %s", resp.message)
+            await client.close()
             return 1
+        logger.info("registered: %s", resp)
 
     logger.info("logging in as %s...", args.user)
     resp = await client.login(password)
 
     if isinstance(resp, nio.LoginError):
-        logger.error("error logging in: ", resp.message)
+        logger.error("error logging in: %s", resp.message)
+        await client.close()
         return 1
 
     logger.info("login response: %s", resp)
@@ -88,15 +91,42 @@ async def main():
 
     stop = asyncio.Event()
 
-    while not stop.is_set():
-        try:
-            logger.info("syncing...")
-            await client.sync_forever(30_000)
-        except asyncio.exceptions.TimeoutError:
-            logger.warning("Unable to connect to homeserver, retrying in 5s...")
-            time.sleep(5)
-        finally:
-            await client.close()
+    async def after_first_sync():
+        await client.synced.wait()
+
+        trusted_users = set()
+        trusted = {}
+        for room in client.rooms.values():
+            for user_id in room.users.keys():
+                trusted_users.add(user_id)
+                for device_id, olm_device in client.device_store[user_id].items():
+                    trusted = {device_id: olm_device}
+
+        for device in trusted.values():
+            client.verify_device(device)
+
+        print("Trusted users:", trusted_users)
+
+    async def sync_forever():
+        while not stop.is_set():
+            try:
+                logger.info("syncing...")
+                await client.sync_forever(30_000, full_state=True)
+            except asyncio.exceptions.TimeoutError:
+                logger.warning("Unable to connect to homeserver, retrying in 5s...")
+                time.sleep(5)
+            finally:
+                await client.close()
+
+    after_first_sync_task = asyncio.ensure_future(after_first_sync())
+    sync_forever_task = asyncio.ensure_future(sync_forever())
+
+    await asyncio.gather(
+        # The order here IS significant! You have to register the task to trust
+        # devices FIRST since it awaits the first sync
+        after_first_sync_task,
+        sync_forever_task,
+    )
 
     return 0
 

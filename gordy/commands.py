@@ -1,6 +1,8 @@
+from typing import Optional, Dict, Type
+
 import abc
 import random
-from io import StringIO
+from io import StringIO, BytesIO
 
 from .bot import Bot
 
@@ -9,20 +11,25 @@ import aiohttp
 from lxml import etree
 from imdb import Cinemagoer
 
+from . import pp
+
 
 class Command(metaclass=abc.ABCMeta):
+    """
 
-    COMMANDS = {}
+    Base class for commands.
 
-    NAME = None
+    """
+
+    NAME: Optional[str] = None
 
     def __init_subclass__(cls) -> None:
         if cls.NAME:
-            cls.COMMANDS[cls.NAME] = cls
+            COMMANDS[cls.NAME] = cls
 
     @classmethod
     def get_command_class(cls, name):
-        return cls.COMMANDS.get(name)
+        return COMMANDS.get(name)
 
     def __init__(self, bot: Bot):
         self.bot = bot
@@ -30,6 +37,13 @@ class Command(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     async def run(self, room: nio.MatrixRoom, event: nio.RoomMessageText):
         pass
+
+    @property
+    def state(self):
+        return self.bot.state[self.NAME]
+
+
+COMMANDS: Dict[str, Type[Command]] = {}
 
 
 class HelpCommand(Command):
@@ -42,8 +56,10 @@ class HelpCommand(Command):
     async def run(self, room: nio.MatrixRoom, event: nio.RoomMessageText):
         parts = []
 
-        for command_name, command in self.COMMANDS.items():
-            line = f"{command_name} - {command.__doc__.strip()}"
+        for command_name, command in COMMANDS.items():
+            doc_str = (command.__doc__ or "").strip()
+
+            line = f"{command_name} - {doc_str}"
             parts.append(line)
 
         msg = "<pre>" + "\n".join(parts) + "</pre>"
@@ -102,26 +118,23 @@ class UrbanDictionaryCommand(Command):
 
 
 class PPCommand(Command):
-    """
-    A celebrations of pp's
-    """
+    """A celebration of pp's."""
 
     NAME = "pp"
 
     async def run(self, room: nio.MatrixRoom, event: nio.RoomMessageText):
+        f = BytesIO()
+        images = pp.generate_pp(f)
+        duration = [pp.PER_FRAME_DURATION for _ in images]
+        duration[-1] = pp.END_FRAME_DURATION
+        images[0].save(
+            f, format="GIF", append_images=images[1:], save_all=True, duration=duration, loop=0, disposal=2
+        )
+        width, height = images[0].size
+        size = f.tell()
+        f.seek(0)
 
-        sack = "_" * random.randint(1, 5)
-        balls = "(" + sack + ")"
-        rod = "=" * random.randint(1, 10)
-        hand = random.randint(1, 10)
-        shaft = rod[:hand] + "✊" + rod[hand:]
-        head = "D"
-        skeet = "💦" * random.randint(1, 5)
-        pp = balls + shaft + head + skeet
-
-        msg = "<pre>" + pp + "</per>"
-
-        await self.bot.send_message_to_room(room.room_id, msg)
+        await self.bot.send_image_to_room(room.room_id, f, "image/gif", "pp.gif", size, width, height)
 
 
 class IMDBCommand(Command):

@@ -1,7 +1,9 @@
 import asyncio
+import collections
 import random
 import logging
 import time
+from typing import IO
 from contextlib import contextmanager
 
 import nio
@@ -55,6 +57,7 @@ class Bot:
         self.command_prefix = command_prefix
         self.state = {}
         self.last_greeting = {}
+        self.state = collections.defaultdict(dict)
 
     async def process_event(self, room: nio.MatrixRoom, event: nio.Event) -> None:
         if isinstance(event, nio.RoomMessageText):
@@ -109,6 +112,40 @@ class Bot:
             greet = random.choice(GREETINGS)
             await self.send_message_to_room(room_id, greet)
             self.last_greeting[room_id] = now
+
+    async def send_image_to_room(self, room_id: str, f: IO[bytes], content_type: str, filename: str, size: int, width: int, height: int):
+        resp, maybe_keys = await self.client.upload(
+            f,
+            content_type=content_type,
+            filename=filename,
+            filesize=size
+        )
+
+        if isinstance(resp, nio.UploadResponse):
+            print("Image was uploaded successfully to server. ")
+        else:
+            print(f"Failed to upload image. Failure response: {resp}")
+
+        content = {
+            "body": filename,  # descriptive title
+            "info": {
+                "size": size,
+                "mimetype": content_type,
+                "thumbnail_info": None,
+                "w": width,
+                "h": height,
+                "thumbnail_url": None,
+            },
+            "msgtype": "m.image",
+            "url": resp.content_uri,
+        }
+
+        try:
+            await self.client.room_send(room_id, message_type="m.room.message", content=content, ignore_unverified_devices=True)
+            print("Image was sent successfully")
+        except Exception as e:
+            print(f"Image send of file {filename} failed: {e}")
+
 
 
 async def run_command(command_name: str, bot: Bot, room: nio.MatrixRoom, event: nio.Event):
