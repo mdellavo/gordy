@@ -3,4 +3,5 @@ aiohttp[speedups]
 cinemagoer
 lxml
 pillow
+emoji==2.11.1
 pilmoji
