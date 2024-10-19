@@ -186,8 +186,10 @@ class StrainCommand(Command):
         return subtitle.lstrip("aka ").split(", ")
 
     def match(self, strain, query):
+        name = strain.get("name") or ""
+        subtitle = strain.get("subtitle") or ""
 
-        names = [strain["name"]] + self.split_akas(strain["subtitle"])
+        names = [name] + self.split_akas(subtitle)
         for name in names:
             if name.lower() == query.lower():
                 return True
@@ -221,14 +223,14 @@ class StrainCommand(Command):
         if not matched:
             return
 
-        name = matched.get("name")
-        subtitle = matched.get("subtitle")
-        slug = matched.get("slug")
+        name = matched.get("name") or ""
+        subtitle = matched.get("subtitle") or ""
+        slug = matched.get("slug") or ""
         url = self.STRAIN_URL_PREFIX + slug
 
-        phenotype = matched.get("phenotype")
-        description = matched.get("shortDescriptionPlain")
-        image = matched.get("nugImage")
+        phenotype = matched.get("phenotype") or ""
+        description = matched.get("shortDescriptionPlain") or ""
+        image = matched.get("nugImage") or ""
 
         parts = [
             "<p>",
