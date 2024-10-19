@@ -179,44 +179,63 @@ class StrainCommand(Command):
 
     NAME = "strain"
 
-    URL = "https://www.leafly.com/strains/"
+    SEARCH_API = "https://consumer-api.leafly.com/api/search/v1"
+    STRAIN_URL_PREFIX = "https://www.leafly.com/strains/"
 
-    NAMESPACES = {
-        "og": "https://ogp.me/ns#"
-    }
+    def split_akas(self, subtitle):
+        return subtitle.lstrip("aka ").split(", ")
+
+    def match(self, strain, query):
+
+        names = [strain["name"]] + self.split_akas(strain["subtitle"])
+        for name in names:
+            if name.lower() == query.lower():
+                return True
+
+        return False
 
     async def run(self, room: nio.MatrixRoom, event: nio.RoomMessageText):
         await self.bot.send_typing(room.room_id)
 
+        query = " ".join(event.body[1:].split()[1:])
+        params = {
+            "q": query,
+            "filter[all_strains]": "true",
+            "skip": 0,
+            "skip_aggs": "true",
+            "take": 5,
+        }
+
         async with aiohttp.ClientSession() as session:
+            async with session.get(self.SEARCH_API, params=params) as response:
+                json = await response.json()
 
-            query = event.body[1:].split()[1:]
-            url = self.URL + "/" + "-".join(query)
+        hits = json.get("hits", {})
+        strains = hits.get("strain", [])
 
-            async with session.get(url) as response:
-                html = await response.text()
+        matched = None
+        for strain in strains:
+            if self.match(strain, query):
+                matched = strain
 
-        parser = etree.HTMLParser()
-        tree = etree.parse(StringIO(html), parser)
-        head = tree.xpath('/html/head')[0]
-
-        def og_node(name):
-            nodes = head.xpath(f'meta[@property="og:{name}"]/@content', namespaces=self.NAMESPACES)
-            return nodes[0] if nodes else None
-
-        description = og_node("description")
-        title = og_node("title").replace("Weed Strain Information | Leafly", "")
-        image = og_node("image")
-        url = og_node("url")
-
-        if not description:
+        if not matched:
             return
+
+        name = matched.get("name")
+        subtitle = matched.get("subtitle")
+        slug = matched.get("slug")
+        url = self.STRAIN_URL_PREFIX + slug
+
+        phenotype = matched.get("phenotype")
+        description = matched.get("shortDescriptionPlain")
+        image = matched.get("nugImage")
 
         parts = [
             "<p>",
-            title, " - ", description,
-            f"&nbsp;<a href=\"{image}\">image</a>",
-            f"&nbsp;<a href=\"{url}\">url</a>",
+            f"<strong>{name}</strong> <em>{subtitle}</em><br>",
+            f"({phenotype}) {description}<br>",
+            f"<a href=\"{image}\">image</a> ",
+            f"<a href=\"{url}\">url</a>",
             "</p>",
         ]
         msg = "".join(parts)
